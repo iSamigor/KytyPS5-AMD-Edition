@@ -209,8 +209,17 @@ if ($Coverage) {
 # The compiled inputs for the emulator's shader prefetch: the seeds translated as the full run does,
 # without pipelines (half a minute).
 $inputs = @('--seeds', "`"$Seeds`"", '--no-pipelines', '--threads', "$cpus", '--static-inputs')
-if ($InputsOnly) {
+# Then the recorded play's specializations added to them: the static cache holds their pipelines, and without their
+# translation in the prefetch a first visit still translated each (~75 ms a compute shader, 22 at once: 1.7 s).
+function Write-StaticInputs {
 	Wait-Precompile (Start-Precompile 'inputs' $inputs) 'inputs'
+	if ($Recorded -and (Test-Path $Recorded)) {
+		Wait-Precompile (Start-Precompile 'inputs-recorded' @('--seeds', "`"$Recorded`"", '--no-pipelines', '--threads', "$cpus",
+			'--static-inputs-append')) 'inputs'
+	}
+}
+if ($InputsOnly) {
+	Write-StaticInputs
 	Write-Host "wrote _PipelineCache\static\$gameId.shaders"
 	return
 }
@@ -273,7 +282,7 @@ while ($pending.Count -or $running.Count) {
 }
 $env:KYTY_PRECOMPILE_CLAIMS = $null
 Wait-Precompile (Start-Precompile 'merge' @('--merge', '--prune')) 'merge'
-Wait-Precompile (Start-Precompile 'inputs' $inputs) 'inputs'
+Write-StaticInputs
 $cache = Get-ChildItem "$PSScriptRoot\_PipelineCache\static\$gameId.bin", "$PSScriptRoot\_PipelineCache\static\$gameId.binaries",
 	"$PSScriptRoot\_PipelineCache\static\$gameId.blobs" -ErrorAction SilentlyContinue |
 	Sort-Object LastWriteTime | Select-Object -Last 1

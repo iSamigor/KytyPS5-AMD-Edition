@@ -854,8 +854,9 @@ bool PipelineCache::WarmSeeds(const PrecompileOptions& args, size_t& left_out) {
 		const auto               out = args.static_inputs ? StaticInputsPath() : args.out;
 		LocalShaderWarmup::Cache result;
 		std::error_code          error;
-		std::filesystem::remove(out, error);
+		if (!args.static_inputs_append) std::filesystem::remove(out, error);
 		(void)result.Open(out, PipelineCacheTitleId() + ShaderInputDeviceSignature(m_graphics.GetPhysicalDeviceProperties()));
+		const auto inputs_before = result.records.size();
 		std::map<uint32_t, uint64_t>                    saved_spirv; // output record -> SPIR-V hash
 		std::unordered_map<const Permutation*, uint32_t> saved;
 		const auto add = [&](uint32_t index, const Permutation& permutation, uint32_t cursor) {
@@ -900,8 +901,10 @@ bool PipelineCache::WarmSeeds(const PrecompileOptions& args, size_t& left_out) {
 			}
 		}
 		const bool written = result.Save();
-		PipelineCacheLog("Shader seeds: {} {} ({} inputs, {} pipelines)", written ? "wrote" : "could not write",
-		                 Common::PathToString(out), result.records.size(), result.pipelines.size());
+		PipelineCacheLog("Shader seeds: {} {} ({} inputs, {} pipelines{})", written ? "wrote" : "could not write",
+		                 Common::PathToString(out), result.records.size(), result.pipelines.size(),
+		                 args.static_inputs_append ? fmt::format("; {} inputs added", result.records.size() - inputs_before)
+		                                           : std::string());
 		// The lists are for coverage (precompile.py), not next to the static cache.
 		const auto list = [&](const char* suffix, const auto& write) {
 			auto path = out;

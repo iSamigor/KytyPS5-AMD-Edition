@@ -122,6 +122,9 @@ int main(int argc, char* argv[]) {
 			validate = true;
 		} else if (arg == "--static-inputs") {
 			options.static_inputs = true;
+		} else if (arg == "--static-inputs-append") {
+			options.static_inputs        = true;
+			options.static_inputs_append = true;
 		} else if (value == nullptr) {
 			return Usage();
 		} else if (arg == "--game") {

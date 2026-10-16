@@ -133,6 +133,9 @@ public:
 		std::filesystem::path seeds;
 		std::filesystem::path out;     // what was compiled, as a warmup file (optional)
 		bool                  static_inputs = false; // out: the one the emulator's shader prefetch reads
+		// With static_inputs: added to the inputs an earlier run wrote (another seed file's, such as the recorded
+		// specializations: the prefetch then translates those too), instead of replacing them.
+		bool                  static_inputs_append = false;
 		std::filesystem::path timings; // each pipeline's compile time (optional)
 		uint32_t              shard   = 0;
 		uint32_t              shards  = 1;
