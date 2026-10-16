@@ -1001,7 +1001,7 @@ bool PipelineCache::StaticInputsCurrent(GraphicContext& graphics, const std::fil
 	const auto seeded = std::filesystem::last_write_time(seeds, error);
 	return !error && written >= seeded &&
 	       LocalShaderWarmup::Cache::FileIdentity(path) ==
-	           "KytyShaderWarmup3:" + PipelineCacheTitleId() + ShaderInputDeviceSignature(graphics.GetPhysicalDeviceProperties());
+	           "KytyShaderWarmup4:" + PipelineCacheTitleId() + ShaderInputDeviceSignature(graphics.GetPhysicalDeviceProperties());
 }
 
 // The store and its shards' files (or only the shards': prune), into a new store; the shard files are
