@@ -1,8 +1,13 @@
-# KytyPS5 portable test build (Windows)
+# KytyPS5 AMD Edition, portable build (Windows)
 
-A Windows test build of the Kyty PS5 emulator. So far it has been tuned only for
-**Demon's Souls (the PS5 remake)**. It is built by GitHub Actions from the source at
-https://github.com/chenxiao07/KytyPS5, where newer builds are under Releases.
+A Windows build of the Kyty PS5 emulator, tuned for **Demon's Souls (the PS5 remake)**: chenxiao07's
+KytyPS5 (https://github.com/chenxiao07/KytyPS5) with fixes for AMD Radeon GPUs, from
+https://github.com/iSamigor/KytyPS5-AMD-Edition (what it changes: its README.md).
+
+- Phantoms no longer render as blue/colored blocks with glow blobs on AMD.
+- The precompiled shader cache is now used on AMD (before, every first visit to an area stuttered):
+  **run the shader precompile once** (launcher → precompile, or `precompile.cmd`), it takes a while.
+- NVIDIA GPUs work as with the original build.
 
 ## Supported game versions
 

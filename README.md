@@ -1,3 +1,31 @@
+# KytyPS5 — AMD Edition
+
+> [!IMPORTANT]
+> **This is [chenxiao07/KytyPS5](https://github.com/chenxiao07/KytyPS5) with fixes for AMD Radeon GPUs**
+> (tested on an RX 9070 XT, RDNA4, Windows 11, with Demon's Souls 1.07). All the emulator work is
+> chenxiao07's and the KytyPS5 developers'; this fork only adds the fixes below, on top of release
+> v20261014. Same license (GPL-2.0).
+>
+> 1. **Phantoms rendered as blue/colored blocks with glow blobs** (the guide phantom in Boletaria, every
+>    phantom up close): a depth-only pixel shader was drawn with color targets enabled. Vulkan leaves
+>    such attachments undefined; NVIDIA keeps them, AMD writes garbage. The color write enable now
+>    honors `CB_SHADER_MASK`, as the PS5's color block does.
+> 2. **Stutter on every first visit to an area, even after the shader precompile**: the AMD driver keys
+>    pipelines by the executable's name, so nothing `kyty_shader_precompile.exe` compiled was ever found
+>    by `kyty_emulator.exe`. The precompile now runs the tool under the emulator's name, and the
+>    background shader prefetch also translates the recorded play's specializations (any GPU).
+>    **Run the precompile again after updating** (launcher → precompile, or `precompile-windows.ps1`).
+> 3. **Wave32 pixel shaders translated as wave64**, which broke lane masks on AMD's native subgroups.
+>
+> **Download: [the latest AMD Edition release](https://github.com/iSamigor/KytyPS5-AMD-Edition/releases/latest)**
+> (Windows x64, any x86-64-v3/AVX2 CPU). Unzip it, double-click `launcher.cmd`, choose the game folder,
+> and run the shader precompile once. Known issue (also on NVIDIA): the Archstone travel preview
+> images look striped.
+>
+> 🇧🇷 Versão do KytyPS5 com correções para placas AMD: fantasmas azuis/quadriculados no Demon's Souls e
+> engasgos em áreas novas (o cache de shaders pré-compilados nunca era usado na AMD). Depois de atualizar,
+> rode a pré-compilação de shaders de novo pelo launcher.
+
 > [!NOTE]
 > **This fork is tuned for Demon's Souls.** Its renderer, shader and memory paths are optimized for
 > **Demon's Souls (PS5, PPSA01341), game versions 1.07 (01.007.000) and 1.05 (01.005.000)**: both are
