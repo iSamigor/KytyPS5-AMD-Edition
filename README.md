@@ -1,5 +1,15 @@
 # KytyPS5 — AMD Edition
 
+> [!CAUTION]
+> **These fixes are now in the official release. Use chenxiao07's build instead of this fork:**
+> **[chenxiao07/KytyPS5 v20261017](https://github.com/chenxiao07/KytyPS5/releases/tag/v20261017) or newer.**
+> Both AMD fixes below were merged upstream (PR [#41](https://github.com/chenxiao07/KytyPS5/pull/41)),
+> together with a check that makes old AMD shader stores show as outdated, and many other improvements.
+> After updating, run the shader precompile once (the launcher asks). This fork is no longer updated.
+>
+> 🇧🇷 **As correções desta versão já estão na versão oficial.** Use a
+> [v20261017 do chenxiao07](https://github.com/chenxiao07/KytyPS5/releases/tag/v20261017) ou mais nova
+> e rode a pré-compilação de shaders uma vez depois de atualizar. Este fork não será mais atualizado.
 > [!IMPORTANT]
 > **This is [chenxiao07/KytyPS5](https://github.com/chenxiao07/KytyPS5) with fixes for AMD Radeon GPUs**
 > (tested on an RX 9070 XT, RDNA4, Windows 11, with Demon's Souls 1.07). All the emulator work is
