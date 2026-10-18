@@ -42,7 +42,7 @@ $safeGpuTip = "Prevents the crashes and blue screens that come from the graphics
 
 $settings = [ordered]@{ game = ''; resolution = '2560x1440'; fullscreen = $false; aspect = $true; language = 1; redzone = $true;
 	ecores = $false; fps120 = $false; render = 1440; ratio = '16:9'; quality = 'standard'; vsync = $false; hdr = $false; framegen = 0
-	hud = 0; streamline = ''; safegpu = $false }
+	hud = 0; streamline = ''; safegpu = $false; fsr = $false }
 if (Test-Path $settingsPath) {
 	$saved = Get-Content $settingsPath -Raw | ConvertFrom-Json
 	foreach ($property in $saved.PSObject.Properties) { if ($settings.Contains($property.Name)) { $settings[$property.Name] = $property.Value } }
@@ -114,6 +114,10 @@ function Resolve-Streamline {
 }
 $streamline = Resolve-Streamline
 $frameGenAvailable = [bool]$streamline
+# FSR 3.1 frame generation (run-windows -Fsr), any GPU: AMD's signed amd_fidelityfx_vk.dll next to the emulator.
+$fsrDll = Join-Path (Split-Path $exe) 'amd_fidelityfx_vk.dll'
+$fsrAvailable = (Test-Path -LiteralPath $fsrDll) -and
+	((Get-AuthenticodeSignature -LiteralPath $fsrDll).SignerCertificate.Subject -match 'O=Advanced Micro Devices')
 
 function Get-PlayCommand {
 	$size = $settings.resolution -split 'x'
@@ -131,7 +135,9 @@ function Get-PlayCommand {
 	if ($settings.quality -in 'low', 'lowest') {
 		$arguments += @('-Quality', $settings.quality, '-TextureReduce', $(if ($settings.quality -eq 'lowest') { 2 } else { 1 }))
 	}
-	if ($frameGenAvailable -and [int]$settings.framegen -ge 2) {
+	if ($fsrAvailable -and $settings.fsr) {
+		$arguments += '-Fsr'
+	} elseif ($frameGenAvailable -and [int]$settings.framegen -ge 2) {
 		$arguments += @('-FrameGen', ([int]$settings.framegen - 1), '-StreamlineDir', "`"$streamline`"")
 	}
 	# Switches of the config, one -Set argument (run-windows.ps1 splits it at the commas).
@@ -304,6 +310,11 @@ $frameGenFolder.Add_Click({
 	Update-FrameGenNote
 })
 Add-Row 'Frame generation' @($frameGen, $frameGenFolder, $frameGenNote)
+$fsr = New-Object System.Windows.Forms.CheckBox -Property @{ Text = 'AMD FSR 3 frame generation (2x, any GPU; instead of DLSS)'; AutoSize = $true
+	Checked = ($fsrAvailable -and [bool]$settings.fsr); Enabled = $fsrAvailable }
+(New-Object System.Windows.Forms.ToolTip).SetToolTip($fsr, "AMD FidelityFX FSR 3.1: one generated frame between two of the game's, from its depth and motion.`n" +
+	"With VSync on, the shown frames are capped at the display's refresh (a 60 Hz display runs the game at 30 fps).`nNeeds amd_fidelityfx_vk.dll next to the emulator.")
+Add-Row '' @($fsr)
 $hud = New-Object System.Windows.Forms.ComboBox -Property @{ DropDownStyle = 'DropDownList'; Width = 160 }
 $hud.Items.AddRange($overlays)
 # (An older launcher saved true for the frame rate.)
@@ -348,6 +359,7 @@ function Read-Form {
 	$settings.quality    = ([string]$quality.SelectedItem -split ' ')[0].ToLowerInvariant()
 	# (Kept as it was where the DLLs are missing.)
 	if ($frameGenAvailable) { $settings.framegen = if ($frameGen.SelectedIndex -gt 0) { $frameGen.SelectedIndex + 1 } else { 0 } }
+	if ($fsrAvailable) { $settings.fsr = $fsr.Checked }
 	$settings.ecores     = $ecores.Checked
 	Save-Settings
 }

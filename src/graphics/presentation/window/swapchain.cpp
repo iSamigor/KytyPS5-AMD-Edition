@@ -318,8 +318,10 @@ public:
 	[[nodiscard]] Status AcquireNextImage();
 	[[nodiscard]] bool   PrepareSystemOverlay(SystemOverlayHud* hud = nullptr);
 	// `scene`: the frame shows the game's 3D view (Presenter::IsSceneFrame).
+	// `fsr_inputs`: the frame's inputs for FSR's HUD-less image (FrameGen::RecordHudless), or null.
 	void                 RecordPresentCommands(CommandBuffer& command, VulkanImage& source,
-	                                           bool draw_system_overlay, bool scene);
+	                                           bool draw_system_overlay, bool scene,
+	                                           const FrameGen::FrameInputs* fsr_inputs = nullptr);
 	uint64_t             Submit(CommandScheduler& scheduler);
 	[[nodiscard]] Status Present();
 
@@ -548,7 +550,8 @@ struct Presenter::Impl {
 			std::array<char, 128> detail {};
 			if (presents > 1) {
 				std::snprintf(title.data(), title.size(), "%.0f FPS", hud_frames / seconds * presents);
-				std::snprintf(detail.data(), detail.size(), "DLSS Frame Generation %ux  |  game %.0f fps", presents, game);
+				std::snprintf(detail.data(), detail.size(), "%s Frame Generation %ux  |  game %.0f fps",
+				              FrameGen::UsesFsr() ? "FSR 3" : "DLSS", presents, game);
 			} else {
 				std::snprintf(title.data(), title.size(), "%.0f FPS", game);
 			}
@@ -752,6 +755,8 @@ void Swapchain::Create() {
 	create_info.imageArrayLayers = 1;
 	create_info.imageUsage =
 	    vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
+	// (FSR's HUD-less image is a copy of the backbuffer: FrameGen::RecordHudless.)
+	if (FrameGen::OwnsSwapchain()) create_info.imageUsage |= vk::ImageUsageFlagBits::eTransferSrc;
 	create_info.imageSharingMode = vk::SharingMode::eExclusive;
 	create_info.preTransform     = transform;
 	create_info.compositeAlpha   = composite;
@@ -772,8 +777,13 @@ void Swapchain::Create() {
 	}
 	m_fifo.store(create_info.presentMode == vk::PresentModeKHR::eFifo, std::memory_order_relaxed);
 	create_info.clipped          = VK_TRUE;
-	RequireVulkanSuccess(graphics.device.createSwapchainKHR(&create_info, nullptr, &m_handle),
-	                     "vkCreateSwapchainKHR");
+	// KYTY_FRAMEGEN_BACKEND=fsr: FSR's frame generation swapchain, made and used through its own functions.
+	if (FrameGen::OwnsSwapchain()) {
+		RequireVulkanSuccess(FrameGen::CreateSwapchain(graphics, create_info, &m_handle), "FSR frame generation swapchain");
+	} else {
+		RequireVulkanSuccess(graphics.device.createSwapchainKHR(&create_info, nullptr, &m_handle),
+		                     "vkCreateSwapchainKHR");
+	}
 	EXIT_IF(m_handle == nullptr);
 	if (Config::HdrEnabled()) {
 		std::printf("Vulkan presentation: %s\n", m_hdr_active ? "HDR10 (PQ)" : "SDR");
@@ -782,7 +792,8 @@ void Swapchain::Create() {
 
 	m_images = EnumerateVulkan<vk::Image>(
 	    "vkGetSwapchainImagesKHR", [&](uint32_t* count, vk::Image* images) {
-		    return graphics.device.getSwapchainImagesKHR(m_handle, count, images);
+		    return FrameGen::OwnsSwapchain() ? FrameGen::GetSwapchainImages(graphics.device, m_handle, count, images)
+		                                     : graphics.device.getSwapchainImagesKHR(m_handle, count, images);
 	    });
 	EXIT_NOT_IMPLEMENTED(m_images.empty());
 
@@ -859,7 +870,11 @@ void Swapchain::Destroy() {
 		}
 	}
 	if (m_handle != nullptr) {
-		graphics.device.destroySwapchainKHR(m_handle, nullptr);
+		if (FrameGen::OwnsSwapchain()) {
+			FrameGen::DestroySwapchain(graphics, m_handle);
+		} else {
+			graphics.device.destroySwapchainKHR(m_handle, nullptr);
+		}
 	}
 
 	m_handle      = nullptr;
@@ -891,9 +906,12 @@ void Swapchain::Recreate(bool surface_lost) {
 Swapchain::Status Swapchain::AcquireNextImage() {
 	EXIT_IF(m_handle == nullptr || m_frame_index >= m_image_acquired.size());
 	m_image_index     = static_cast<uint32_t>(-1);
-	const auto result = m_window.graphic_ctx.device.acquireNextImageKHR(
-	    m_handle, std::numeric_limits<uint64_t>::max(), m_image_acquired[m_frame_index], nullptr,
-	    &m_image_index);
+	const auto result =
+	    FrameGen::OwnsSwapchain()
+	        ? FrameGen::AcquireNextImage(m_window.graphic_ctx.device, m_handle, std::numeric_limits<uint64_t>::max(),
+	                                     m_image_acquired[m_frame_index], &m_image_index)
+	        : m_window.graphic_ctx.device.acquireNextImageKHR(m_handle, std::numeric_limits<uint64_t>::max(),
+	                                                          m_image_acquired[m_frame_index], nullptr, &m_image_index);
 	switch (result) {
 		case vk::Result::eSuccess: break;
 		case vk::Result::eSuboptimalKHR:
@@ -922,7 +940,8 @@ bool Swapchain::PrepareSystemOverlay(SystemOverlayHud* hud) {
 }
 
 void Swapchain::RecordPresentCommands(CommandBuffer& command, VulkanImage& source,
-                                      bool draw_system_overlay, bool scene) {
+                                      bool draw_system_overlay, bool scene,
+                                      const FrameGen::FrameInputs* fsr_inputs) {
 	if (source.state.layout != vk::ImageLayout::eTransferSrcOptimal) {
 		EXIT("invalid prepared presentation image, vk_image=%p layout=%d\n",
 		     static_cast<void*>(source.image), static_cast<int>(source.state.layout));
@@ -1009,6 +1028,11 @@ void Swapchain::RecordPresentCommands(CommandBuffer& command, VulkanImage& sourc
 	vk_command.blitImage(source.image, vk::ImageLayout::eTransferSrcOptimal,
 	                     m_images[m_image_index], vk::ImageLayout::eTransferDstOptimal, 1, &region,
 	                     vk::Filter::eLinear);
+	// KYTY_FRAMEGEN_BACKEND=fsr: the HUD-less image from this, before the system overlay (which counts as HUD then).
+	if (FrameGen::OwnsSwapchain()) {
+		FrameGen::RecordHudless(m_window.graphic_ctx, vk_command, fsr_inputs, m_images[m_image_index], m_extent,
+		                        m_present_region);
+	}
 
 	vk::ImageMemoryBarrier to_present {};
 	to_present.sType         = vk::StructureType::eImageMemoryBarrier;
@@ -1065,7 +1089,11 @@ Swapchain::Status Swapchain::Present() {
 	present.waitSemaphoreCount = 1;
 
 	vk::Result result;
-	if (auto& graphics = m_window.graphic_ctx; graphics.present_queue != nullptr) {
+	if (auto& graphics = m_window.graphic_ctx; FrameGen::OwnsSwapchain()) {
+		// FSR's swapchain: its game queue is the present queue (FrameGen::CreateSwapchain).
+		Common::LockGuard lock(graphics.present_queue_mutex);
+		result = FrameGen::QueuePresent(graphics.present_queue, present);
+	} else if (graphics.present_queue != nullptr) {
 		// Its own queue: a present blocked in the kernel does not hold up other submissions.
 		Common::LockGuard lock(graphics.present_queue_mutex);
 		result = graphics.present_queue.presentKHR(&present);
@@ -1285,6 +1313,13 @@ void Presenter::Present(Frame& frame, bool reuse) {
 		return;
 	}
 #endif
+	// KYTY_FRAMEGEN_BACKEND=fsr: the frame's inputs for FSR (none for an idle refresh of the last frame); a frame
+	// without them between generated frames is not shown (FrameGen::SkipsFrame).
+	const FrameGen::FrameInputs* fsr_inputs = frame.fg.valid && !frame.reusing_last && !reuse ? &frame.fg : nullptr;
+	if (FrameGen::OwnsSwapchain() && FrameGen::SkipsFrame(fsr_inputs)) {
+		m_impl->frames.Release(&frame, true);
+		return;
+	}
 #if defined(KYTY_LOCAL_VULKAN_RECORDING) && defined(_WIN32)
 	// The frame's rendering may still sit in the recording worker's queue (KYTY_DEFERRED_SUBMIT).
 	// On Windows, presenting before it reaches the driver blocks vkQueuePresentKHR in the
@@ -1330,7 +1365,10 @@ void Presenter::Present(Frame& frame, bool reuse) {
 				    (static_cast<float>(hud->drawn.offset.x - region.offset.x) + static_cast<float>(hud->drawn.extent.width) + margin) / w,
 				    (static_cast<float>(hud->drawn.offset.y - region.offset.y) + static_cast<float>(hud->drawn.extent.height) + margin) / h);
 			}
-			swapchain.RecordPresentCommands(command, frame.image, draw_system_overlay, frame.scene);
+			swapchain.RecordPresentCommands(command, frame.image, draw_system_overlay, frame.scene, fsr_inputs);
+			if (FrameGen::OwnsSwapchain()) {
+				FrameGen::RecordPrepare(m_impl->window.graphic_ctx, command.Handle(), fsr_inputs, swapchain.PresentRegion());
+			}
 			frame.present_tick = swapchain.Submit(m_impl->present_scheduler);
 		}
 #if defined(_WIN32)

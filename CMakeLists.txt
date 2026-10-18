@@ -363,6 +363,7 @@ set(gpu_blit_shader_sources
 	"${gpu_tiler_shader_dir}/gpu_blit_fs_triangle.vert"
 	"${gpu_tiler_shader_dir}/gpu_blit_color_to_ms_depth.frag"
 	"${gpu_tiler_shader_dir}/gpu_imgui_hdr.frag"
+	"${gpu_tiler_shader_dir}/fsr_hud_mask.frag"
 )
 foreach(shader_source IN LISTS gpu_blit_shader_sources)
 	get_filename_component(shader_name "${shader_source}" NAME_WE)
@@ -851,6 +852,16 @@ if (WIN32)
 		             INCLUDE_DIRECTORIES "${KYTY_STREAMLINE_SDK}/include")
 		set_property(SOURCE "${KYTY_SOURCE_DIR}/local/frame-gen.cpp" APPEND PROPERTY
 		             COMPILE_DEFINITIONS KYTY_FRAMEGEN_STREAMLINE=1)
+	endif()
+	# KYTY_FRAMEGEN_BACKEND=fsr: AMD FidelityFX SDK 1.1.4's API headers (ffx-api/include, MIT) when unpacked under
+	# _Build/deps/fidelityfx; its runtime (amd_fidelityfx_vk.dll, signed by AMD) goes next to the emulator.
+	set(KYTY_FIDELITYFX_SDK "${CMAKE_CURRENT_SOURCE_DIR}/_Build/deps/fidelityfx" CACHE PATH
+	    "AMD FidelityFX SDK (ffx-api) for KYTY_FRAMEGEN_BACKEND=fsr")
+	if (EXISTS "${KYTY_FIDELITYFX_SDK}/include/ffx_api/ffx_api.h")
+		set_property(SOURCE "${KYTY_SOURCE_DIR}/local/frame-gen.cpp" APPEND PROPERTY
+		             INCLUDE_DIRECTORIES "${KYTY_FIDELITYFX_SDK}/include")
+		set_property(SOURCE "${KYTY_SOURCE_DIR}/local/frame-gen.cpp" APPEND PROPERTY
+		             COMPILE_DEFINITIONS KYTY_FRAMEGEN_FSR=1)
 	endif()
 endif()
 

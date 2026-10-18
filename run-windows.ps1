@@ -19,6 +19,8 @@
 #   .\run-windows.ps1 -StreamlineDir <dir>   where NVIDIA's Streamline runtime is (the Streamline SDK
 #                                            or its bin\x64; default: a "streamline" folder next to
 #                                            the emulator)
+#   .\run-windows.ps1 -Fsr                   AMD FSR 3.1 frame generation instead (2x, any GPU): AMD's
+#                                            amd_fidelityfx_vk.dll next to the emulator
 #   .\run-windows.ps1 -Fps120                the game's frame rate up to 120 fps instead of 60 (a 120 Hz
 #                                            virtual vblank; movies, menus and loading screens keep 60)
 #   .\run-windows.ps1 -Vblank 240            another virtual vblank rate (default 60, the console's)
@@ -72,6 +74,7 @@ param(
 	[int]$Language = -1,
 	[int]$FrameGen = 0,
 	[string]$StreamlineDir = '',
+	[switch]$Fsr,
 	[string]$Affinity = '',
 	[switch]$Prompt,
 	[switch]$Follow,
@@ -364,6 +367,8 @@ if ($Threads -gt 0) { $environment['KYTY_SHADER_WARMUP_THREADS'] = "$Threads" }
 if (!$environment.Contains('KYTY_HITCH_LOG_MS')) { $environment['KYTY_HITCH_LOG_MS'] = '100' }
 if ($AspectFit) { $environment['KYTY_PRESENT_ASPECT'] = 'fit' }
 if ($FrameGen -gt 0) { $environment['KYTY_FRAMEGEN'] = "$FrameGen" }
+# -Fsr: FSR 3.1 (one generated frame; no Streamline).
+if ($Fsr) { $environment['KYTY_FRAMEGEN'] = '1'; $environment['KYTY_FRAMEGEN_BACKEND'] = 'fsr'; $FrameGen = 0 }
 # Without -StreamlineDir, the Streamline folder chosen in the launcher (launcher-settings.json), as the launcher passes
 # it: run.cmd -FrameGen 1 had started with frame generation off, its runtime not found (issue #38).
 if (!$StreamlineDir -and $FrameGen -gt 0 -and (Test-Path "$PSScriptRoot\launcher-settings.json")) {
