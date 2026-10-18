@@ -1,3 +1,30 @@
+# KytyPS5 — AMD Edition (FSR 3 frame generation)
+
+> [!IMPORTANT]
+> **This is [chenxiao07/KytyPS5](https://github.com/chenxiao07/KytyPS5) v20261018 with AMD FSR 3.1 frame
+> generation (2x)** for GPUs that have no DLSS frame generation: AMD Radeon, and NVIDIA RTX 20/30 and GTX
+> cards. All the emulator work is chenxiao07's and the KytyPS5 developers'; the AMD fixes of this fork's
+> first release are in chenxiao07's builds since v20261017 (PR [#41](https://github.com/chenxiao07/KytyPS5/pull/41)).
+> Same license (GPL-2.0).
+>
+> - The launcher's **"AMD FSR 3 frame generation"** shows 120 fps from the game's 60 (`run-windows.ps1 -Fsr`).
+>   It uses the depth, motion vectors and camera the DLSS frame generation reads from the game, and AMD's
+>   frame generation swapchain on queues of its own (`src/local/frame-gen.cpp`).
+> - **No HUD ghosting:** the HUD's place is read from the game's interface canvas; FSR gets a HUD-less frame
+>   with the HUD painted over by the scene around it, so health, stamina, souls and item icons stay sharp.
+> - Off in menus, loading screens and movies; on again in 3D play.
+> - Needs AMD's signed `amd_fidelityfx_vk.dll` (FidelityFX SDK 1.1.4, MIT) next to the emulator: the
+>   release includes it. Building: unpack the SDK's `ffx-api/include` into `_Build/deps/fidelityfx/include`.
+> - Tested on an RX 9070 XT (Windows 11, Demon's Souls 1.07); untested on NVIDIA. 2x only: FSR 4 and AMD's
+>   multi-frame generation exist only for DirectX 12. Thin, fast things (hair) can smear slightly.
+>
+> **Download: [the latest AMD Edition release](https://github.com/iSamigor/KytyPS5-AMD-Edition/releases/latest).**
+> Unzip it, double-click `launcher.cmd`, tick "AMD FSR 3 frame generation", and run the shader precompile once.
+>
+> 🇧🇷 KytyPS5 (v20261018 do chenxiao07) com frame generation **AMD FSR 3.1 (2x)** para placas sem DLSS
+> frame generation: AMD Radeon e NVIDIA RTX 20/30 e GTX. 120 fps a partir dos 60 do jogo, sem fantasmas no HUD.
+> Marque "AMD FSR 3 frame generation" no launcher.
+
 > [!NOTE]
 > **This fork is tuned for Demon's Souls.** Its renderer, shader and memory paths are optimized for
 > **Demon's Souls (PS5, PPSA01341), game versions 1.07 (01.007.000) and 1.05 (01.005.000)**: both are

@@ -221,9 +221,21 @@ inline bool IsReticle(const HW::VertexShaderInfo& vs, uint32_t first) {
 	});
 }
 
+// KYTY_FRAMEGEN_BACKEND=fsr: an interface draw names the canvas (its render target) whose alpha marks the HUD for FSR
+// (FrameGen::NoteUiCanvas).
+inline void NoteCanvas(const HW::Context& ctx, const HW::VertexShaderInfo& vs) {
+	const auto& target = ctx.GetRenderTarget(0);
+	if (target.base.addr == 0 || target.attrib2.width + 1u != CanvasWidth || target.attrib2.height + 1u != CanvasHeight)
+		return;
+	const uint64_t hash = HashAt(vs.es_regs.data_addr);
+	if (hash == PixelShader || std::find(ClipShaders.begin(), ClipShaders.end(), hash) != ClipShaders.end())
+		FrameGen::NoteUiCanvas(target.base.addr);
+}
+
 // The areas the draw's vertices lie in (a bit each, Outside for one in none), from its vertices in guest memory; 0 when
 // it is no interface draw into the canvas in a frame showing the 3D, or its vertices are not readable.
 inline uint32_t Classify(const HW::Context& ctx, const HW::VertexShaderInfo& vs, uint32_t first, uint32_t count) {
+	if (count != 0 && FrameGen::UsesFsr()) NoteCanvas(ctx, vs);
 	if (::Loader::DemonsSoulsRenderSize::WideAspect() <= 0.0 || count == 0) return 0;
 	const auto& target = ctx.GetRenderTarget(0);
 	const auto  width  = CanvasWidthOf(ctx);

@@ -64,6 +64,10 @@ struct FrameInputs {
 	bool          motion_attachment = false; // the motion copy is a color attachment too
 	HudlessImages hudless;                   // KYTY_FG_HUDLESS
 	bool          valid       = false;
+	// KYTY_FRAMEGEN_BACKEND=fsr: a copy of the game's interface canvas (its alpha: where the HUD is), when known.
+	VulkanImage   ui;
+	vk::ImageView ui_view  = nullptr;
+	bool          ui_valid = false;
 };
 
 // Process start, before the window: loads Streamline when KYTY_FRAMEGEN or KYTY_UPSCALER=dlss is set (it then
@@ -103,6 +107,41 @@ void NoteDroppedFrame();
 // KYTY_FPS_HUD: the panel's rectangle, normalized to the game image. Its motion vectors are
 // zeroed so generated frames keep the panel in place.
 void SetStaticRect(float x0, float y0, float x1, float y1);
+
+// KYTY_FRAMEGEN_BACKEND=fsr: AMD FidelityFX FSR 3.1 frame generation instead of Streamline's DLSS-G, any GPU: one
+// generated frame per frame (2x), from the same inputs. amd_fidelityfx_vk.dll (AMD's signed runtime, next to the
+// emulator) makes the window's swapchain (its frame generation swapchain: it interpolates and paces the presents on
+// queues of its own, GraphicContext::fsr_*), so the swapchain's calls go through it.
+// After Initialize: FSR asked for and its runtime loaded (device creation then adds its queues).
+[[nodiscard]] bool UsesFsr();
+// After the device's queues: FSR is ready when its queues were made.
+void OnFsrQueues(GraphicContext& graphics);
+// The swapchain is FSR's (Enabled() with the FSR backend).
+[[nodiscard]] bool OwnsSwapchain();
+// The swapchain calls, FSR's in place of Vulkan's (OwnsSwapchain()). Present thread.
+[[nodiscard]] vk::Result CreateSwapchain(GraphicContext& graphics, const vk::SwapchainCreateInfoKHR& info,
+                                         vk::SwapchainKHR* swapchain);
+void                     DestroySwapchain(GraphicContext& graphics, vk::SwapchainKHR swapchain);
+[[nodiscard]] vk::Result GetSwapchainImages(vk::Device device, vk::SwapchainKHR swapchain, uint32_t* count, vk::Image* images);
+[[nodiscard]] vk::Result AcquireNextImage(vk::Device device, vk::SwapchainKHR swapchain, uint64_t timeout,
+                                          vk::Semaphore semaphore, uint32_t* index);
+[[nodiscard]] vk::Result QueuePresent(vk::Queue queue, const vk::PresentInfoKHR& present);
+// Present thread, recording the frame's present commands (before its submit): FSR's configuration for the frame
+// and its prepare pass on `inputs` (null: no inputs, generation off). `region`: the part of the backbuffer the game
+// image covers.
+void RecordPrepare(GraphicContext& graphics, vk::CommandBuffer command, const FrameInputs* inputs, vk::Rect2D region);
+// Present thread: a frame without inputs while FSR generates (an idle refresh, a menu's first frames) is not
+// presented, up to a few in a row; then generation turns off and they are.
+[[nodiscard]] bool SkipsFrame(const FrameInputs* inputs);
+// GPU thread (an interface draw, hud-anchor.h): the game's 3840x2160 interface canvas, composited over the 3D into its
+// output; FSR is told where the HUD is from its alpha, so that generated frames show the HUD of the game's frame
+// instead of moving it with the scene.
+void NoteUiCanvas(uint64_t address);
+// Present thread, in the frame's present commands right after the game image is blitted into `backbuffer`
+// (transfer-destination layout, left so): FSR's HUD-less image of the frame, the backbuffer with the HUD darkened
+// (FSR then takes the HUD's pixels from the game's frame). Before the system overlay: that counts as HUD too.
+void RecordHudless(GraphicContext& graphics, vk::CommandBuffer command, const FrameInputs* inputs, vk::Image backbuffer,
+                   vk::Extent2D extent, vk::Rect2D region);
 
 // Renderer thread (Kyty.Gpu).
 // The guest frame ran the TAA pass: the game's 3D view (play, or a cutscene in the engine), not a movie, a menu or a

@@ -1604,7 +1604,17 @@ bool QuerySharedGpuMemory(uint64_t* usage) {
 	return true;
 }
 
+static bool IsSignedBy(const std::wstring& path, const wchar_t* signer_name);
+
 bool IsNvidiaSigned(const std::wstring& path) {
+	return IsSignedBy(path, L"NVIDIA Corporation");
+}
+
+bool IsAmdSigned(const std::wstring& path) {
+	return IsSignedBy(path, L"Advanced Micro Devices");
+}
+
+static bool IsSignedBy(const std::wstring& path, const wchar_t* signer_name) {
 	WINTRUST_FILE_INFO file {};
 	file.cbStruct      = sizeof(file);
 	file.pcwszFilePath = path.c_str();
@@ -1627,7 +1637,7 @@ bool IsNvidiaSigned(const std::wstring& path) {
 		wchar_t name[256] {};
 		if (cert != nullptr && cert->pCert != nullptr &&
 		    CertGetNameStringW(cert->pCert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, nullptr, name, 256) > 1)
-			nvidia = std::wstring(name) == L"NVIDIA Corporation";
+			nvidia = std::wstring(name) == signer_name;
 	}
 	data.dwStateAction = WTD_STATEACTION_CLOSE;
 	(void)WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE), &action, &data);
@@ -1919,6 +1929,10 @@ bool QuerySharedGpuMemory(uint64_t* /*usage*/) {
 }
 
 bool IsNvidiaSigned(const std::wstring& /*path*/) {
+	return false;
+}
+
+bool IsAmdSigned(const std::wstring& /*path*/) {
 	return false;
 }
 
