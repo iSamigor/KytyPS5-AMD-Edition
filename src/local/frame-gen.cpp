@@ -128,12 +128,13 @@ void Transition(vk::CommandBuffer command, VulkanImage& image, vk::ImageAspectFl
 	image.state = {stage, access, layout};
 }
 
-// (Re)create `image` as a sampled copy target like `source`; with `attachment`, a color
-// attachment too where the format allows it (*attachment tells).
+// (Re)create `image` as a sampled copy target like `source` (of `size` when given: a blit target); with `attachment`, a
+// color attachment too where the format allows it (*attachment tells).
 void Configure(GraphicContext& graphics, VulkanImage& image, vk::ImageView& view,
-               const VulkanImage& source, bool* attachment) {
+               const VulkanImage& source, bool* attachment, vk::Extent2D size, bool* failed) {
+	if (size.width == 0 || size.height == 0) size = {source.extent.width, source.extent.height};
 	if (image.image != nullptr && image.format == source.format &&
-	    image.extent.width == source.extent.width && image.extent.height == source.extent.height) {
+	    image.extent.width == size.width && image.extent.height == size.height) {
 		return;
 	}
 	if (view != nullptr) {
@@ -145,7 +146,7 @@ void Configure(GraphicContext& graphics, VulkanImage& image, vk::ImageView& view
 	}
 	vk::ImageCreateInfo create {};
 	create.imageType     = vk::ImageType::e2D;
-	create.extent        = vk::Extent3D {source.extent.width, source.extent.height, 1};
+	create.extent        = vk::Extent3D {size.width, size.height, 1};
 	create.mipLevels     = 1;
 	create.arrayLayers   = 1;
 	create.format        = source.format;
@@ -163,8 +164,12 @@ void Configure(GraphicContext& graphics, VulkanImage& image, vk::ImageView& view
 	create.sharingMode   = vk::SharingMode::eExclusive;
 	create.samples       = vk::SampleCountFlagBits::e1;
 	if (!graphics.CreateImage(create, image)) {
-		EXIT("frame generation: cannot allocate a %ux%u input image\n", source.extent.width,
-		     source.extent.height);
+		// (`failed`: an image the frame can do without, the HUD canvas's copy: none this time.)
+		if (failed != nullptr) {
+			*failed = true;
+			return;
+		}
+		EXIT("frame generation: cannot allocate a %ux%u input image\n", size.width, size.height);
 	}
 	vk::ImageViewCreateInfo view_info {};
 	view_info.image            = image.image;
@@ -178,6 +183,23 @@ void Configure(GraphicContext& graphics, VulkanImage& image, vk::ImageView& view
 }
 
 namespace {
+
+// `source` scaled into `target` (a color image; filtered).
+void BlitInto(vk::CommandBuffer command, Image& source, VulkanImage& target) {
+	source.Transit(vk::ImageLayout::eTransferSrcOptimal, vk::AccessFlagBits2::eTransferRead, {}, command);
+	Transition(command, target, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eTransferDstOptimal,
+	           vk::AccessFlagBits2::eTransferWrite, vk::PipelineStageFlagBits2::eTransfer);
+	vk::ImageBlit blit {};
+	blit.srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+	blit.dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1};
+	blit.srcOffsets[1]  = vk::Offset3D {static_cast<int32_t>(source.backing.extent.width),
+	                                    static_cast<int32_t>(source.backing.extent.height), 1};
+	blit.dstOffsets[1]  = vk::Offset3D {static_cast<int32_t>(target.extent.width), static_cast<int32_t>(target.extent.height), 1};
+	command.blitImage(source.backing.image, vk::ImageLayout::eTransferSrcOptimal, target.image,
+	                  vk::ImageLayout::eTransferDstOptimal, 1, &blit, vk::Filter::eLinear);
+	Transition(command, target, vk::ImageAspectFlagBits::eColor, vk::ImageLayout::eShaderReadOnlyOptimal,
+	           vk::AccessFlagBits2::eShaderRead, vk::PipelineStageFlagBits2::eAllCommands);
+}
 
 void CopyInto(vk::CommandBuffer command, Image& source, VulkanImage& target) {
 	const auto aspect = IsDepthFormat(source.backing.format) ? vk::ImageAspectFlagBits::eDepth
@@ -580,13 +602,13 @@ bool FsrEnsureFrameGeneration(vk::Extent2D render) {
 std::atomic<uint64_t> g_ui_canvas {0};
 constexpr uint32_t    UiCanvasWidth = 3840, UiCanvasHeight = 2160;
 
-// FSR's HUD-less images (RecordHudless): the backbuffer with the HUD darkened, three in turn (the interpolation of one
-// may still read it while the next frame's is made).
+// FSR's HUD-less images (RecordHudless): the backbuffer with the HUD painted over by the scene around it, two in turn
+// (the interpolation of one may still read it while the next frame's is made).
 struct FsrHud {
 	vk::Format                   format = vk::Format::eUndefined; // the pipeline's
 	vk::Extent2D                 extent {};                       // the images'
-	std::array<VulkanImage, 3>   images {};
-	std::array<vk::ImageView, 3> views {};
+	std::array<VulkanImage, 2>   images {};
+	std::array<vk::ImageView, 2> views {};
 	VulkanImage                  source;                // the backbuffer copied, the pass's input
 	vk::ImageView                source_view = nullptr;
 	vk::Sampler                  sampler    = nullptr;
@@ -1526,9 +1548,14 @@ void PrepareInputs(GraphicContext& graphics, TextureCache& cache, CommandBuffer&
 			auto& ui = cache.GetImage(id);
 			if (ui.backing.image != nullptr && ui.backing.extent.width == UiCanvasWidth &&
 			    ui.backing.extent.height == UiCanvasHeight && !IsDepthFormat(ui.backing.format)) {
-				Configure(graphics, inputs.ui, inputs.ui_view, ui.backing);
-				CopyInto(vk_command, ui, inputs.ui);
-				inputs.ui_valid = true;
+				// (At half its size: its alpha is a mask, read a few pixels wide; a quarter of the video memory.)
+				bool failed = false;
+				Configure(graphics, inputs.ui, inputs.ui_view, ui.backing, nullptr,
+				          vk::Extent2D {UiCanvasWidth / 2, UiCanvasHeight / 2}, &failed);
+				if (!failed) {
+					BlitInto(vk_command, ui, inputs.ui);
+					inputs.ui_valid = true;
+				}
 				if (reports++ == 0) {
 					std::printf("Frame generation: FSR HUD canvas copied (%ux%u, format %d)\n", ui.backing.extent.width,
 					            ui.backing.extent.height, static_cast<int>(ui.backing.format));
@@ -1729,6 +1756,16 @@ void DestroyInputs(GraphicContext& graphics, FrameInputs& inputs) {
 
 bool UsesFsr() {
 	return g_fsr;
+}
+
+uint64_t FsrVideoMemoryReserve() {
+	// (Measured with a 2560x1440 swapchain: the driver's share of the video memory 1.33-1.38 GiB with FSR, 0.55-0.70
+	// without; and the HUD images.) KYTY_FSR_VRAM_RESERVE_MB overrides it.
+	static const uint64_t reserve = [] {
+		const char* value = std::getenv("KYTY_FSR_VRAM_RESERVE_MB");
+		return (value != nullptr ? std::strtoull(value, nullptr, 10) : 1536ull) << 20u;
+	}();
+	return g_fsr ? reserve : 0;
 }
 
 void NoteUiCanvas(uint64_t address) {

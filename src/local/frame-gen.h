@@ -114,6 +114,9 @@ void SetStaticRect(float x0, float y0, float x1, float y1);
 // queues of its own, GraphicContext::fsr_*), so the swapchain's calls go through it.
 // After Initialize: FSR asked for and its runtime loaded (device creation then adds its queues).
 [[nodiscard]] bool UsesFsr();
+// The video memory FSR takes beside the game's (FidelityFX's allocations, outside the emulator's allocator, and its
+// HUD images): what the emulator leaves it when it sizes its use of the budget (small_video_memory).
+[[nodiscard]] uint64_t FsrVideoMemoryReserve();
 // After the device's queues: FSR is ready when its queues were made.
 void OnFsrQueues(GraphicContext& graphics);
 // The swapchain is FSR's (Enabled() with the FSR backend).
@@ -172,9 +175,10 @@ void DestroyInputs(GraphicContext& graphics, FrameInputs& inputs);
 
 // Frame generation's own images (not the texture cache's; frame-gen-hudless.cpp's too), on the thread that records
 // them: `image` (re)made as a sampled copy target like `source`, with its view (with `attachment`, a color attachment
-// too where the format allows it, *attachment tells); a barrier from `image`'s state to `layout`, `access` at `stage`.
+// too where the format allows it, *attachment tells; of `size` when given: a blit target; with `failed`, an image that
+// cannot be made sets it instead of exiting); a barrier from `image`'s state to `layout`, `access` at `stage`.
 void Configure(GraphicContext& graphics, VulkanImage& image, vk::ImageView& view, const VulkanImage& source,
-               bool* attachment = nullptr);
+               bool* attachment = nullptr, vk::Extent2D size = {}, bool* failed = nullptr);
 void Transition(vk::CommandBuffer command, VulkanImage& image, vk::ImageAspectFlags aspect, vk::ImageLayout layout,
                 vk::AccessFlags2 access, vk::PipelineStageFlags2 stage);
 

@@ -13,6 +13,8 @@
 > - **No HUD ghosting:** the HUD's place is read from the game's interface canvas; FSR gets a HUD-less frame
 >   with the HUD painted over by the scene around it, so health, stamina, souls and item icons stay sharp.
 > - Off in menus, loading screens and movies; on again in 3D play.
+> - FidelityFX takes about 1.3 GB of video memory: with FSR on, textures are held only from the level the game samples
+>   (`KYTY_TEXTURE_PREFIX`, no quality change), and FSR's share counts against the budget (`KYTY_FSR_VRAM_RESERVE_MB`).
 > - Needs AMD's signed `amd_fidelityfx_vk.dll` (FidelityFX SDK 1.1.4, MIT) next to the emulator: the
 >   release includes it. Building: unpack the SDK's `ffx-api/include` into `_Build/deps/fidelityfx/include`.
 > - Tested on an RX 9070 XT (Windows 11, Demon's Souls 1.07); untested on NVIDIA. 2x only: FSR 4 and AMD's
