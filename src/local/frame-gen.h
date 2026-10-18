@@ -103,6 +103,9 @@ void SetStaticRect(float x0, float y0, float x1, float y1);
 // queues of its own, GraphicContext::fsr_*), so the swapchain's calls go through it.
 // After Initialize: FSR asked for and its runtime loaded (device creation then adds its queues).
 [[nodiscard]] bool UsesFsr();
+// The video memory FSR takes beside the game's (FidelityFX's allocations, outside the emulator's allocator, and its
+// HUD images): what the emulator leaves it when it sizes its use of the budget (small_video_memory).
+[[nodiscard]] uint64_t FsrVideoMemoryReserve();
 // After the device's queues: FSR is ready when its queues were made.
 void OnFsrQueues(GraphicContext& graphics);
 // The swapchain is FSR's (Enabled() with the FSR backend).
