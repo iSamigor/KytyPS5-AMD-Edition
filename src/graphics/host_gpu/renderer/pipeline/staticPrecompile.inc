@@ -105,6 +105,48 @@ SeedSpecializations(const ShaderRecompiler::IR::Program& program) {
 	return with_volumes_as_2d(std::move(out));
 }
 
+// A compute seed's recorded specialization, then the same with the 3D images the shader declares (outside tables) given
+// 2D textures as SeedSpecializations' guesses do, and given volumes again where the record had 2D: the game binds either
+// to the same program, and the hints hold the one their recording met. The other compiled at its first encounter
+// (10-18, RX 9070 XT: a boss's death met 3 large CS 0x44353015859c5f9b... whose hints were 3D 3D with 3D 2D, 16 s each,
+// a 51 s freeze).
+static std::vector<ShaderRecompiler::IR::ResourceSpecialization>
+RecordedSpecializations(const ShaderRecompiler::IR::Program&               program,
+                        const ShaderRecompiler::IR::ResourceSpecialization& recorded) {
+	using ShaderRecompiler::Decoder::ImageDimension;
+	using ShaderRecompiler::IR::ImageResource;
+	std::vector out {recorded};
+	if (program.stage != ShaderType::Compute) return out;
+	std::vector<uint32_t> volumes;
+	for (uint32_t index = 0; index < program.info.images.size() && index < recorded.images.size(); index++) {
+		const auto& image = program.info.images[index];
+		const bool  table = image.source < program.descriptor_sources.size() &&
+		                   program.descriptor_sources[image.source].indirect_image.has_value();
+		if (image.dimension == ImageDimension::Dim3D && !table &&
+		    recorded.images[index].indirect_root == ImageResource::NoIndirectImage &&
+		    (recorded.images[index].dimension == ImageDimension::Dim3D ||
+		     recorded.images[index].dimension == ImageDimension::Dim2D))
+			volumes.push_back(index);
+	}
+	if (volumes.empty()) return out;
+	// (The sets of SeedSpecializations: the last 1, 2, ... of them 2D; with three also 2D 2D 3D and 3D 2D 3D.)
+	std::vector<std::vector<uint32_t>> flat_sets;
+	for (size_t last = 1; last <= volumes.size(); last++) flat_sets.emplace_back(volumes.end() - last, volumes.end());
+	if (volumes.size() == 3) flat_sets.insert(flat_sets.end(), {{volumes[0], volumes[1]}, {volumes[1]}});
+	auto volume = recorded;
+	for (const auto index: volumes) volume.images[index].dimension = ImageDimension::Dim3D;
+	const auto add = [&](ShaderRecompiler::IR::ResourceSpecialization specialization) {
+		if (std::ranges::find(out, specialization) == out.end()) out.push_back(std::move(specialization));
+	};
+	add(volume);
+	for (const auto& flat_set: flat_sets) {
+		auto flat = volume;
+		for (const auto index: flat_set) flat.images[index].dimension = ImageDimension::Dim2D;
+		add(std::move(flat));
+	}
+	return out;
+}
+
 // A recorded specialization's indirect image tables in their portable form (BuildResourceSpecialization):
 // candidates padded to a power of two, the key mapping found through a header word.
 static void PortableIndirectTables(const ShaderRecompiler::IR::Program&         program,
@@ -312,11 +354,13 @@ bool PipelineCache::WarmSeeds(const PrecompileOptions& args, size_t& left_out) {
 			if (std::ranges::any_of(translated.program.descriptor_sources,
 			                        [](const auto& source) { return source.indirect_image.has_value(); }))
 				indirect.fetch_add(1, std::memory_order_relaxed);
-			// A seed that carries a specialization (a recorded warmup file) is compiled with it.
+			// A seed that carries a specialization (a recorded warmup file) is compiled with it (a compute seed's with its
+			// volumes' other dimensions too: RecordedSpecializations).
 			const bool recorded = !seed.specialization.buffers.empty() || !seed.specialization.images.empty();
-			auto       specializations =
-			    recorded ? std::vector {seed.specialization} : SeedSpecializations(translated.program);
-			if (recorded) PortableIndirectTables(translated.program, specializations[0]);
+			auto       specializations = recorded ? RecordedSpecializations(translated.program, seed.specialization)
+			                                      : SeedSpecializations(translated.program);
+			if (recorded)
+				for (auto& specialization: specializations) PortableIndirectTables(translated.program, specialization);
 			for (size_t variant = 0; variant < specializations.size(); variant++) {
 				auto& specialization = specializations[variant];
 				if (variant != 0) translated = ShaderRecompiler::TranslateProgram(seed.code, options);
